@@ -1,7 +1,5 @@
-import os
 import json
-import re
-from typing import List, TypedDict
+from typing import List
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
@@ -9,7 +7,6 @@ from pydantic import BaseModel, Field, validator
 
 # --- 1. SETUP ---
 # We use a lower temperature to reduce "creative" repetition
-os.environ["GROQ_API_KEY"] = "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"
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
 # --- 2. DEFINE THE OUTPUT SCHEMA ---

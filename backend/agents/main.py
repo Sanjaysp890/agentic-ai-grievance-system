@@ -1,50 +1,67 @@
 import sys
-from typing import TypedDict, Optional, Dict, Any, Literal
+from typing import TypedDict, Optional, Dict, Any, Literal, List
 from langgraph.graph import StateGraph, END
 
-# Conditional Imports
+# -------------------------------
+# Imports (Package-safe)
+# -------------------------------
 try:
-    from intake_agent import intake_agent
-    from classifier_agent import classifier_node
-    from departments import (
-        water_dept_node, 
-        police_dept_node, 
-        electricity_dept_node, 
+    from .intake_agent import intake_agent
+    from .classifier_agent import classifier_node
+    from .departments import (
+        water_dept_node,
+        police_dept_node,
+        electricity_dept_node,
         general_dept_node
     )
+    from .escalation_agent import escalation_agent_node
+    from .learning_agent import learning_agent_node
 except ImportError as e:
     print(f"System Error: Failed to import required modules. {e}")
     sys.exit(1)
 
-# --- State Definition ---
+# -------------------------------
+# Master State Definition
+# -------------------------------
 class MasterState(TypedDict):
-    # Input Data
+    # Input
     input_type: str
     input_content: str
     metadata: Dict[str, Any]
 
-    # Agent Outputs
+    # Intake outputs
     detected_language: Optional[str]
     original_transcript: Optional[str]
     english_output: Optional[str]
+
+    # Classification output
     classification: Optional[Dict[str, Any]]
-    
-    # Department Outputs
+
+    # Department output
     department_name: Optional[str]
     officer_response: Optional[str]
-    
-    # System Status
+
+    # Escalation output
+    escalated: Optional[bool]
+    escalation_reason: Optional[str]
+
+    # Learning output
+    previous_responses: Optional[List[str]]
+    learning_agent_status: Optional[str]
+
+    # Error handling
     error: Optional[str]
 
-# --- Workflow Wrappers ---
-
+# -------------------------------
+# Wrapper Nodes
+# -------------------------------
 def intake_wrapper(state: MasterState):
     print("[System] Initializing Intake Agent...")
     result = intake_agent.invoke(state)
-    
+
     if result.get("error"):
         return {"error": result["error"]}
-        
+
     return {
         "english_output": result.get("english_output"),
         "original_transcript": result.get("original_transcript"),
@@ -54,55 +71,59 @@ def intake_wrapper(state: MasterState):
 def classifier_wrapper(state: MasterState):
     if state.get("error"):
         return {"error": state["error"]}
-        
+
     print("[System] Analyzing Content and Determining Routing...")
     return classifier_node(state)
 
-# --- Routing Logic ---
-
+# -------------------------------
+# Routing Logic
+# -------------------------------
 def route_complaint(state: MasterState) -> Literal["water", "police", "electric", "general"]:
-    """
-    Determines the next node based on classification tags.
-    Returns the key of the target node.
-    """
     if state.get("error"):
         return END
 
     classification = state.get("classification", {})
-    depts = classification.get("departments", [])
-    
-    if not depts:
+    departments = classification.get("departments", [])
+
+    if not departments:
         return "general"
-        
-    # Normalize input for routing comparison
-    primary_dept = depts[0].lower()
-    
-    if "water" in primary_dept:
+
+    primary = departments[0].lower()
+
+    if "water" in primary:
         return "water"
-    elif any(x in primary_dept for x in ["police", "crime", "theft"]):
+    elif any(x in primary for x in ["police", "crime", "theft"]):
         return "police"
-    elif any(x in primary_dept for x in ["electric", "power", "energy"]):
+    elif any(x in primary for x in ["electric", "power", "energy"]):
         return "electric"
     else:
         return "general"
 
-# --- Graph Construction ---
-
+# -------------------------------
+# LangGraph Workflow
+# -------------------------------
 workflow = StateGraph(MasterState)
 
-# Add Nodes
+# Core nodes
 workflow.add_node("intake", intake_wrapper)
 workflow.add_node("classifier", classifier_wrapper)
+
+# Department nodes
 workflow.add_node("water_node", water_dept_node)
 workflow.add_node("police_node", police_dept_node)
 workflow.add_node("electric_node", electricity_dept_node)
 workflow.add_node("general_node", general_dept_node)
 
-# Define Logic Flow
+# Post-processing agents
+workflow.add_node("escalation", escalation_agent_node)
+workflow.add_node("learning", learning_agent_node)
+
+# Entry
 workflow.set_entry_point("intake")
+
+# Flow
 workflow.add_edge("intake", "classifier")
 
-# Conditional Edges
 workflow.add_conditional_edges(
     "classifier",
     route_complaint,
@@ -114,35 +135,45 @@ workflow.add_conditional_edges(
     }
 )
 
-# Termination Edges
-for node in ["water_node", "police_node", "electric_node", "general_node"]:
-    workflow.add_edge(node, END)
+# Department → Escalation → Learning → END
+for dept in ["water_node", "police_node", "electric_node", "general_node"]:
+    workflow.add_edge(dept, "escalation")
 
-# Compile Application
+workflow.add_edge("escalation", "learning")
+workflow.add_edge("learning", END)
+
+# Compile app
 app = workflow.compile()
 
-# --- Execution Entry Point ---
-
+# -------------------------------
+# Execution Entry Point
+# -------------------------------
 if __name__ == "__main__":
-    # Test Payload
     user_input = {
         "input_type": "text",
-        "input_content": "Someone stole my bike from M.G. Road!",
-        "metadata": {"source": "api_v1"}
+        "input_content": "Water supply is contaminated and smells bad.",
+        "metadata": {"source": "cli_test"}
     }
-    
-    print(f"--- Starting Grievance Redressal Workflow ---")
+
+    print("\n--- Starting Grievance Redressal Workflow ---")
     print(f"[Input] {user_input['input_content']}")
-    
+
     try:
         final_state = app.invoke(user_input)
-        
+
         if final_state.get("error"):
-            print(f"[Error] Workflow terminated: {final_state['error']}")
+            print(f"[Error] {final_state['error']}")
         else:
-            print("--- Workflow Completed Successfully ---")
-            print(f"Department: {final_state['department_name']}")
-            print(f"Resolution: {final_state['officer_response']}")
+            print("\n--- Workflow Completed ---")
+            print(f"Department Response: {final_state.get('officer_response')}")
             
+            if final_state.get("previous_responses"):
+                print("\nPrevious Similar Responses:")
+                for idx, resp in enumerate(final_state["previous_responses"], 1):
+                    print(f"{idx}. {resp}")
+
+            if final_state.get("escalated"):
+                print(f"\n⚠ Escalated: {final_state.get('escalation_reason')}")
+
     except Exception as e:
         print(f"[Critical Error] {e}")
