@@ -9,7 +9,8 @@ import sounddevice as sd
 import numpy as np
 from scipy.io.wavfile import write
 
-from backend.database.db import save_complaint
+from ..databases.db import save_complaint
+
 
 
 from dotenv import load_dotenv
