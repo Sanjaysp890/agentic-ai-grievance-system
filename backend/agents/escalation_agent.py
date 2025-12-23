@@ -1,27 +1,47 @@
+import time
 from typing import Dict, Any
-from datetime import datetime, timedelta
 
-ESCALATION_TIME_LIMIT_HOURS = 48
+SLA_CRITICAL_THRESHOLD_SEC = 15 
+SLA_STANDARD_THRESHOLD_SEC = 30
 
 def escalation_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Escalates unresolved or critical complaints to higher authority.
+    Monitors Department performance against SLAs.
+    Escalates if:
+    1. Urgency is extremely high (Immediate Supervisor Alert).
+    2. Response time exceeded the allowed threshold.
     """
 
     classification = state.get("classification", {})
     urgency = classification.get("urgency_score", 0)
 
-    created_at = state.get("created_at")
-    resolved = state.get("officer_response") is not None
+    meta = state.get("metadata", {})
+    start_time = meta.get("intake_time", time.time())
+    end_time = state.get("response_timestamp", time.time())
 
-    if created_at and not resolved:
-        created_time = datetime.fromisoformat(created_at)
-        if datetime.utcnow() - created_time > timedelta(hours=ESCALATION_TIME_LIMIT_HOURS):
-            return {
-                "escalated": True,
-                "escalation_reason": "Complaint unresolved beyond time limit"
-            }
+    time_taken = end_time - start_time
+    
+    print(f"[Escalation] Analyzing SLA Compliance... (Time Taken: {time_taken:.2f}s)")
+
+    if urgency >= 9:
+        reason = f"Critical Severity Score ({urgency}/10) requires Supervisor oversight."
+        print(f"[Escalation] ⚠ FLAG RAISED: {reason}")
+        return {
+            "escalation_status": "escalated",
+            "escalation_reason": reason
+        }
+
+    allowed_limit = SLA_CRITICAL_THRESHOLD_SEC if urgency > 6 else SLA_STANDARD_THRESHOLD_SEC
+    
+    if time_taken > allowed_limit:
+        reason = f"SLA Breach. Response took {time_taken:.2f}s (Limit: {allowed_limit}s)."
+        print(f"[Escalation] ⚠ FLAG RAISED: {reason}")
+        return {
+            "escalation_status": "escalated",
+            "escalation_reason": reason
+        }
 
     return {
-        "escalated": False
+        "escalation_status": "normal",
+        "escalation_reason": None
     }
