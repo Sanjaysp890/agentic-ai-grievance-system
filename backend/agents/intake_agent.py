@@ -1,24 +1,21 @@
 import os
+import sys
 from typing import TypedDict, Optional, Dict, Any
 from langgraph.graph import StateGraph, END
 from faster_whisper import WhisperModel
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
-import sounddevice as sd
-import numpy as np
-from scipy.io.wavfile import write
-
-from backend.database.db import save_complaint
-
-
 from dotenv import load_dotenv
+
 load_dotenv()
 
-print(" Loading Whisper Model... (This happens only once)")
+print("[System] Loading Whisper Model (CPU/Int8)...")
 asr_model = WhisperModel("small", device="cpu", compute_type="int8")
 
-print(" Connecting to Groq...")
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+print("[System] Connecting to LLM Provider...")
+if not os.getenv("GROQ_API_KEY"):
+    print("[Error] GROQ_API_KEY not found in environment variables.")
+    
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
 class AgentState(TypedDict):
@@ -28,47 +25,60 @@ class AgentState(TypedDict):
 
     detected_language: Optional[str]
     original_transcript: Optional[str]
-    
     english_output: Optional[str]
     error: Optional[str]
 
 
 def audio_transcriber_node(state: AgentState):
+    """
+    Node 1: Converts Audio File -> Native Text Transcript
+    """
     try:
         audio_path = state["input_content"]
+        
         if not os.path.exists(audio_path):
-            return {"error": f"Audio file not found: {audio_path}"}
+            return {"error": f"Audio file not found at path: {audio_path}"}
 
-        print(f" Transcribing audio: {audio_path}")
+        print(f"[Intake] Transcribing audio: {audio_path}")
         segments, info = asr_model.transcribe(audio_path)
+        
         full_transcript = " ".join([s.text for s in segments])
+        
+        print(f"[Intake] Detected Language: {info.language}")
         
         return {
             "original_transcript": full_transcript, 
             "detected_language": info.language
         }
     except Exception as e:
-        return {"error": f"ASR Failed: {str(e)}"}
+        return {"error": f"ASR Processing Failed: {str(e)}"}
 
 def translation_node(state: AgentState):
+    """
+    Node 2: Converts Native Text -> Standard English
+    """
     if state.get("error"):
         return {"english_output": None}
 
     try:
         text = state.get("original_transcript") or state["input_content"]
-        print(f" Translating...")
+        
+        if not text:
+            return {"error": "No text content found to translate."}
+
+        print(f"[Intake] Normalizing and translating text...")
 
         prompt = ChatPromptTemplate.from_template(
             """
-            You are a strict translator for a Public Grievance System. 
+            You are a strict data normalizer for a Grievance System.
             
             Input Text: "{text}"
             
             Instructions:
-            1. Translate the input into standard, professional English.
-            2. STRICTLY maintain the original meaning. **DO NOT** add words, emotions, or calls to action that are not in the source text.
-            3. If the input is already in English, return it exactly as is (corrected for grammar only).
-            4. Output ONLY the final text.
+            1. Translate the text into clear, objective English.
+            2. Remove conversational filler (e.g., "Umm", "Hello sir").
+            3. Do not summarize; keep all factual details (dates, locations, names).
+            4. Output ONLY the final English text.
             """
         )
         
@@ -78,9 +88,12 @@ def translation_node(state: AgentState):
         return {"english_output": result.content.strip()}
     
     except Exception as e:
-        return {"error": f"Translation Failed: {str(e)}"}
+        return {"error": f"Translation/Normalization Failed: {str(e)}"}
 
 def input_router(state: AgentState):
+    """
+    Determines entry point based on input modality.
+    """
     if state.get("error"):
         return END
     
@@ -108,64 +121,66 @@ workflow.add_edge("translate", END)
 
 intake_agent = workflow.compile()
 
-def record_audio(filename="live_input.wav", duration=5):
-    print(f" Recording for {duration} seconds... Speak now!")
-    fs = 44100 
-    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-    sd.wait()
-    write(filename, fs, (recording * 32767).astype(np.int16))
-    print(" Recording saved.")
-    return filename
-
 if __name__ == "__main__":
-    print("\n AGENT READY!")
-    print("1. Type text to chat")
-    print("2. Type 'rec' to record voice (5s)")
-    print("---------------------------------------")
+    try:
+        import sounddevice as sd
+        import numpy as np
+        from scipy.io.wavfile import write
+        
+        def record_audio(filename="live_input.wav", duration=5):
+            print(f"\n[Test] Recording for {duration} seconds...")
+            fs = 44100 
+            recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+            sd.wait()
+            write(filename, fs, (recording * 32767).astype(np.int16))
+            print("[Test] Recording saved.")
+            return filename
+            
+    except ImportError:
+        print("[Warning] 'sounddevice' not installed. Live recording disabled.")
+        def record_audio(*args):
+            return None
 
+    print("\n--- INTAKE AGENT TEST INTERFACE ---")
+    
     while True:
-        user_input = input("\nInput (or 'rec'/'quit'): ").strip()
+        user_input = input("\n[Input] Type text, filename, 'rec', or 'quit': ").strip()
         
         if user_input.lower() in ["quit", "exit"]:
             break
             
+        inputs = {}
+        
         if user_input.lower() == "rec":
             audio_file = record_audio()
-            inputs = {
-                "input_type": "audio",
-                "input_content": audio_file,
-                "metadata": {"source": "live_mic"}
-            }
-        
-        elif user_input.endswith(".mp3") or user_input.endswith(".wav"):
+            if audio_file:
+                inputs = {
+                    "input_type": "audio", 
+                    "input_content": audio_file, 
+                    "metadata": {}
+                }
+            else:
+                continue
+
+        elif user_input.endswith((".mp3", ".wav", ".m4a")):
              inputs = {
-                "input_type": "audio",
-                "input_content": user_input,
-                "metadata": {"source": "file_upload"}
+                "input_type": "audio", 
+                "input_content": user_input, 
+                "metadata": {}
             }
             
         else:
             inputs = {
-                "input_type": "text",
-                "input_content": user_input,
-                "metadata": {"source": "cli_text"}
+                "input_type": "text", 
+                "input_content": user_input, 
+                "metadata": {}
             }
-
-        print("Processing...")
 
         result = intake_agent.invoke(inputs)
 
-        if result.get("english_output"):
-            save_complaint(
-                inputs["input_content"],
-                result["english_output"],
-                inputs["input_type"],
-                result.get("detected_language", "en")
-            )
-
         if result.get("error"):
-            print(f"ERROR: {result['error']}")
+            print(f"[Error] {result['error']}")
         else:
             if result.get('original_transcript'):
-                print(f"TRANSCRIPT: {result['original_transcript']}")
-            print(f"ENGLISH OUTPUT: {result['english_output']}")
+                print(f"[Transcript] {result['original_transcript']}")
+            print(f"[English Output] {result['english_output']}")
