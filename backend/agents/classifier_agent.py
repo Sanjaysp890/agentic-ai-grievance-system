@@ -1,67 +1,76 @@
+import os
 import json
-from typing import List
+import re
+from typing import List, Dict, Any
+from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field, validator
 
-# --- 1. SETUP ---
-# We use a lower temperature to reduce "creative" repetition
+load_dotenv()
+
+if not os.getenv("GROQ_API_KEY"):
+    print("[Warning] GROQ_API_KEY not found in environment variables.")
+
 llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
-# --- 2. DEFINE THE OUTPUT SCHEMA ---
 class GrievanceClassification(BaseModel):
+    """
+    Strict schema for classification output.
+    Used by the Main Agent to determine routing logic.
+    """
     urgency_score: int = Field(
         ..., 
-        description="Score between 1 (Low) and 10 (Critical)"
+        description="Integer score between 1 (Low) and 10 (Critical/Life Threatening)"
     )
     departments: List[str] = Field(
         ..., 
-        description="List of relevant departments"
+        description="List of relevant departments (e.g. Police, Health, WaterBoard)"
     )
     sentiment: str = Field(
         ..., 
-        description="User's emotional tone"
+        description="The emotional tone of the complaint (e.g. Angry, Desperate, Neutral)"
     )
     reasoning: str = Field(
         ..., 
-        description="Brief reason for the score"
+        description="A brief explanation for the urgency score and department selection"
     )
 
-    # FIX: Auto-remove duplicate departments if the AI repeats them
     @validator('departments')
     def remove_duplicates(cls, v):
         return list(set(v))
 
 parser = PydanticOutputParser(pydantic_object=GrievanceClassification)
 
-# --- 3. THE STRICT PROMPT ---
-# We customized the format instructions to be cleaner for Llama 3
 classification_prompt = ChatPromptTemplate.from_template(
     """
-    You are an AI Classifier. Task: Analyze the complaint and output strictly structured JSON.
-    
+    You are an AI Classifier for a Public Grievance System.
+    Task: Analyze the input text and output strictly structured JSON data.
+
     COMPLAINT: "{text}"
-    
+
     RULES:
-    1. Urgency: 1-10 (10=Life Threatening).
-    2. Departments: Choose from [Police, Health, WaterBoard, Electricity, Municipal, RoadTransport, Fire, CyberCrime].
-    3. JSON ONLY. No markdown, no "Here is the JSON", no repeated text.
-    
+    1. Urgency: Rate 1-10. (10 = Immediate Danger/Fire/Crime, 1 = Minor Suggestion).
+    2. Departments: Select from [Police, Health, WaterBoard, Electricity, Municipal, RoadTransport, Fire, CyberCrime].
+    3. Sentiment: Detect the user's emotion.
+    4. Output: JSON ONLY. Do not wrap in markdown blocks. Do not add conversational text.
+
     {format_instructions}
     """
 )
 
-# --- 4. THE AGENT NODE ---
-def classifier_node(state):
+def classifier_node(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyzes English text and returns structured classification data.
+    """
     english_text = state.get("english_output")
+    
     if not english_text:
-        return {"error": "No text to classify"}
+        return {"error": "Classifier Error: No english_output found in state."}
 
-    # print(f"🧐 Classifying...") # Commented out to reduce noise
 
     try:
-        # Step 1: Generate Raw Text
         chain = classification_prompt | llm
         response = chain.invoke({
             "text": english_text,
@@ -70,37 +79,36 @@ def classifier_node(state):
         
         raw_content = response.content.strip()
         
-        # FIX: Manually clean markdown code blocks if the LLM adds them
-        # (Llama 3 loves adding ```json ... ```)
         if "```json" in raw_content:
             raw_content = raw_content.split("```json")[1].split("```")[0].strip()
         elif "```" in raw_content:
             raw_content = raw_content.split("```")[1].split("```")[0].strip()
 
-        # Step 2: Parse the cleaned text
         parsed_data = parser.parse(raw_content)
+
         
         return {"classification": parsed_data.dict()}
         
     except Exception as e:
-        return {"error": f"Classification failed: {str(e)}"}
+        return {"error": f"Classification Failed: {str(e)}"}
 
-# --- 5. TEST RUNNER ---
 if __name__ == "__main__":
     test_inputs = [
         "There is a massive fire in the garbage dump! Kids are coughing.",
         "My street light is flickering.",
-        "The water supply is dirty."
+        "The water supply is dirty and smells like sewage."
     ]
 
-    print("--- TESTING CLASSIFIER AGENT ---")
+    print("\n--- CLASSIFIER AGENT TEST ---")
     
     for text in test_inputs:
-        print(f"\n📝 Input: {text}")
-        result = classifier_node({"english_output": text})
+        print(f"\n[Input] {text}")
         
-        if "error" in result:
-            print(f"❌ Error: {result['error']}")
+        dummy_state = {"english_output": text}
+        
+        result = classifier_node(dummy_state)
+        
+        if result.get("error"):
+            print(f"[Error] {result['error']}")
         else:
-            # Clean print of the JSON
             print(json.dumps(result["classification"], indent=2))
