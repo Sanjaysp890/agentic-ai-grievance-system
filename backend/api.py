@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
@@ -6,6 +7,20 @@ from typing import Optional
 # CREATE FASTAPI APP
 # --------------------------------------------------
 app = FastAPI(title="Public Grievance Redressal AI System")
+
+# --------------------------------------------------
+# ✅ CORS (REQUIRED FOR FRONTEND)
+# --------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --------------------------------------------------
 # IMPORT BACKEND LOGIC
@@ -29,7 +44,7 @@ class SignupRequest(BaseModel):
     name: str
     email: str
     password: str
-    role: str = "user"
+    role: str = "user"        # user | admin
     department: Optional[str] = None
 
 
@@ -39,7 +54,7 @@ class LoginRequest(BaseModel):
 
 
 class ComplaintRequest(BaseModel):
-    input_type: str      # "text" | "audio"
+    input_type: str          # "text" | "audio"
     input_content: str
     user_id: int
 
@@ -108,7 +123,7 @@ def submit_complaint(req: ComplaintRequest):
 
 
 # --------------------------------------------------
-# ADMIN: VIEW COMPLAINTS (DEPT RESTRICTED)
+# ADMIN: VIEW COMPLAINTS (DEPARTMENT RESTRICTED)
 # --------------------------------------------------
 @app.get("/admin/complaints/{department}")
 def get_admin_complaints(department: str):
@@ -119,7 +134,7 @@ def get_admin_complaints(department: str):
 
 
 # --------------------------------------------------
-# ADMIN: RESPOND (DEPT RESTRICTED)
+# ADMIN: RESPOND TO COMPLAINT (DEPT RESTRICTED)
 # --------------------------------------------------
 @app.post("/admin/respond")
 def admin_respond(req: AdminResponseRequest):

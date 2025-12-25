@@ -17,7 +17,7 @@ def get_connection():
     )
 
 # =================================================
-# USER AUTH
+# USERS
 # =================================================
 def create_user(name, email, password, role="user", department=None):
     conn = get_connection()
@@ -36,7 +36,6 @@ def create_user(name, email, password, role="user", department=None):
     conn.commit()
     cur.close()
     conn.close()
-
     return user_id
 
 
@@ -88,7 +87,6 @@ def save_complaint(original_input, english_text, input_type, language):
     conn.commit()
     cur.close()
     conn.close()
-
     return complaint_id
 
 
@@ -110,51 +108,6 @@ def update_complaint_classification(complaint_id, department, priority):
     conn.commit()
     cur.close()
     conn.close()
-
-
-def get_complaints_by_department(department):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT complaint_id, original_input, status, priority
-        FROM complaints
-        WHERE department = %s
-        ORDER BY complaint_id DESC;
-        """,
-        (department,)
-    )
-
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return [
-        {
-            "complaint_id": r[0],
-            "text": r[1],
-            "status": r[2],
-            "priority": r[3]
-        }
-        for r in rows
-    ]
-
-
-def get_complaint_department(complaint_id):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        "SELECT department FROM complaints WHERE complaint_id = %s;",
-        (complaint_id,)
-    )
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    return row[0] if row else None
 
 
 def save_department_response(complaint_id, department, response_text):
@@ -182,3 +135,55 @@ def save_department_response(complaint_id, department, response_text):
     conn.commit()
     cur.close()
     conn.close()
+
+# =================================================
+# ADMIN HELPERS
+# =================================================
+def get_complaint_department(complaint_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT department FROM complaints WHERE complaint_id = %s;",
+        (complaint_id,)
+    )
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return row[0] if row else None
+
+
+def get_complaints_by_department(department):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+            complaint_id,
+            english_text,
+            original_input,
+            status
+        FROM complaints
+        WHERE department = %s
+        ORDER BY complaint_id DESC;
+        """,
+        (department,)
+    )
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    complaints = []
+    for row in rows:
+        complaints.append({
+            "complaint_id": row[0],
+            "english_text": row[1],
+            "original_input": row[2],
+            "status": row[3]
+        })
+
+    return complaints
