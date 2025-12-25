@@ -1,28 +1,59 @@
 import os
-import time
 from typing import TypedDict, Optional, Dict, Any
 from langgraph.graph import StateGraph, END
-from faster_whisper import WhisperModel
+from dotenv import load_dotenv
+from pathlib import Path
+
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
-import sounddevice as sd
-import numpy as np
-from scipy.io.wavfile import write
+from faster_whisper import WhisperModel
 
+# DB import (used only in CLI mode)
 from ..databases.db import save_complaint
 
 
+# ======================================================
+# EXPLICIT .env LOADING (WINDOWS + UVICORN SAFE)
+# ======================================================
+ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
-from dotenv import load_dotenv
-load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+if not GROQ_API_KEY:
+    raise RuntimeError("GROQ_API_KEY is not set in environment variables")
 
-print(" Loading Whisper Model... (This happens only once)")
-asr_model = WhisperModel("small", device="cpu", compute_type="int8")
+os.environ["GROQ_API_KEY"] = GROQ_API_KEY
 
-print(" Connecting to Groq...")
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
-llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
 
+# ======================================================
+# LAZY-LOADED MODELS (FASTAPI SAFE)
+# ======================================================
+_asr_model = None
+_llm = None
+
+
+def get_asr_model():
+    global _asr_model
+    if _asr_model is None:
+        print(" Loading Whisper Model... (once)")
+        _asr_model = WhisperModel("small", device="cpu", compute_type="int8")
+    return _asr_model
+
+
+def get_llm():
+    global _llm
+    if _llm is None:
+        print(" Connecting to Groq... (once)")
+        _llm = ChatGroq(
+            model="llama-3.3-70b-versatile",
+            temperature=0
+        )
+    return _llm
+
+
+# ======================================================
+# STATE
+# ======================================================
 class AgentState(TypedDict):
     input_type: str
     input_content: str
@@ -30,27 +61,33 @@ class AgentState(TypedDict):
 
     detected_language: Optional[str]
     original_transcript: Optional[str]
-    
     english_output: Optional[str]
     error: Optional[str]
 
 
+# ======================================================
+# AGENT NODES
+# ======================================================
 def audio_transcriber_node(state: AgentState):
     try:
         audio_path = state["input_content"]
+
         if not os.path.exists(audio_path):
             return {"error": f"Audio file not found: {audio_path}"}
 
-        print(f" Transcribing audio: {audio_path}")
+        asr_model = get_asr_model()
         segments, info = asr_model.transcribe(audio_path)
-        full_transcript = " ".join([s.text for s in segments])
-        
+
+        transcript = " ".join([s.text for s in segments])
+
         return {
-            "original_transcript": full_transcript, 
+            "original_transcript": transcript,
             "detected_language": info.language
         }
+
     except Exception as e:
         return {"error": f"ASR Failed: {str(e)}"}
+
 
 def translation_node(state: AgentState):
     if state.get("error"):
@@ -58,39 +95,43 @@ def translation_node(state: AgentState):
 
     try:
         text = state.get("original_transcript") or state["input_content"]
-        print(f" Translating...")
 
         prompt = ChatPromptTemplate.from_template(
             """
-            You are a strict translator for a Public Grievance System. 
-            
-            Input Text: "{text}"
-            
-            Instructions:
-            1. Translate the input into standard, professional English.
-            2. STRICTLY maintain the original meaning. **DO NOT** add words, emotions, or calls to action that are not in the source text.
-            3. If the input is already in English, return it exactly as is (corrected for grammar only).
-            4. Output ONLY the final text.
+            Translate the input into professional English.
+            Preserve the original meaning strictly.
+            Output ONLY the translated text.
+
+            INPUT: "{text}"
             """
         )
-        
+
+        llm = get_llm()
         chain = prompt | llm
         result = chain.invoke({"text": text})
-        
+
         return {"english_output": result.content.strip()}
-    
+
     except Exception as e:
         return {"error": f"Translation Failed: {str(e)}"}
 
+
+# ======================================================
+# ROUTER
+# ======================================================
 def input_router(state: AgentState):
     if state.get("error"):
         return END
-    
+
     if state["input_type"] == "audio":
         return "transcribe"
+
     return "translate"
 
 
+# ======================================================
+# LANGGRAPH WORKFLOW
+# ======================================================
 workflow = StateGraph(AgentState)
 
 workflow.add_node("transcribe", audio_transcriber_node)
@@ -99,7 +140,7 @@ workflow.add_node("translate", translation_node)
 workflow.set_conditional_entry_point(
     input_router,
     {
-        "transcribe": "transcribe", 
+        "transcribe": "transcribe",
         "translate": "translate",
         END: END
     }
@@ -110,64 +151,32 @@ workflow.add_edge("translate", END)
 
 intake_agent = workflow.compile()
 
-def record_audio(filename="live_input.wav", duration=5):
-    print(f" Recording for {duration} seconds... Speak now!")
-    fs = 44100 
-    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-    sd.wait()
-    write(filename, fs, (recording * 32767).astype(np.int16))
-    print(" Recording saved.")
-    return filename
 
+# ======================================================
+# OPTIONAL CLI MODE (SAFE)
+# ======================================================
 if __name__ == "__main__":
-    print("\n AGENT READY!")
-    print("1. Type text to chat")
-    print("2. Type 'rec' to record voice (5s)")
-    print("---------------------------------------")
+    print(" Intake Agent CLI Mode")
 
     while True:
-        user_input = input("\nInput (or 'rec'/'quit'): ").strip()
-        
-        if user_input.lower() in ["quit", "exit"]:
+        text = input("Enter complaint (or 'quit'): ").strip()
+        if text.lower() == "quit":
             break
-            
-        if user_input.lower() == "rec":
-            audio_file = record_audio()
-            inputs = {
-                "input_type": "audio",
-                "input_content": audio_file,
-                "metadata": {"source": "live_mic"}
-            }
-        
-        elif user_input.endswith(".mp3") or user_input.endswith(".wav"):
-             inputs = {
-                "input_type": "audio",
-                "input_content": user_input,
-                "metadata": {"source": "file_upload"}
-            }
-            
-        else:
-            inputs = {
-                "input_type": "text",
-                "input_content": user_input,
-                "metadata": {"source": "cli_text"}
-            }
 
-        print("Processing...")
+        state = {
+            "input_type": "text",
+            "input_content": text,
+            "metadata": {"source": "cli"}
+        }
 
-        result = intake_agent.invoke(inputs)
+        result = intake_agent.invoke(state)
 
         if result.get("english_output"):
             save_complaint(
-                inputs["input_content"],
+                text,
                 result["english_output"],
-                inputs["input_type"],
+                "text",
                 result.get("detected_language", "en")
             )
 
-        if result.get("error"):
-            print(f"ERROR: {result['error']}")
-        else:
-            if result.get('original_transcript'):
-                print(f"TRANSCRIPT: {result['original_transcript']}")
-            print(f"ENGLISH OUTPUT: {result['english_output']}")
+        print(result)
