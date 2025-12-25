@@ -102,19 +102,38 @@ def classifier_wrapper(state: MasterState):
         return {"error": "Classifier returned no classification"}
 
     departments = classification.get("departments")
-    priority = classification.get("priority")
+    priority = classification.get("urgency_score")
 
-    if not departments or not priority:
-        return {"error": "Classifier output missing departments or priority"}
+    if not departments or priority is None:
+        return {"error": "Classifier output missing departments or urgency_score"}
 
-    # ✅ Save AI decision to DB
+    # ✅ DETERMINE FINAL ROUTED DEPARTMENT (SINGLE SOURCE OF TRUTH)
+    primary = departments[0].lower()
+
+    if "water" in primary:
+        final_department = "WaterBoard"
+    elif "health" in primary:
+        final_department = "Health"
+    elif "electric" in primary:
+        final_department = "Electricity"
+    elif "police" in primary or "crime" in primary:
+        final_department = "Police"
+    else:
+        final_department = "General"
+
+    # ✅ SAVE ROUTED DEPARTMENT TO DB
     update_complaint_classification(
         state["complaint_id"],
-        departments[0],
+        final_department,
         priority
     )
 
-    return {"classification": classification}
+    return {
+        "classification": classification,
+        "department_name": final_department
+    }
+
+
 
 
 def escalation_wrapper(state: MasterState):
@@ -127,11 +146,6 @@ def escalation_wrapper(state: MasterState):
 # ROUTING LOGIC (FIXED — NO END HERE)
 # ======================================================
 def route_complaint(state: MasterState) -> Literal["water", "police", "electric", "general"]:
-    """
-    Conditional router.
-    MUST return only valid route keys.
-    """
-
     if state.get("error"):
         return "general"
 
@@ -141,16 +155,19 @@ def route_complaint(state: MasterState) -> Literal["water", "police", "electric"
     if not depts:
         return "general"
 
-    primary = depts[0].lower()
+    # ✅ normalize all departments
+    dept_text = " ".join(d.lower() for d in depts)
 
-    if "water" in primary:
+    # ✅ PRIORITY-BASED ROUTING (REALISTIC)
+    if "water" in dept_text:
         return "water"
-    elif any(k in primary for k in ["police", "crime", "theft"]):
-        return "police"
-    elif any(k in primary for k in ["electric", "power", "energy"]):
+    if "electric" in dept_text or "power" in dept_text:
         return "electric"
-    else:
-        return "general"
+    if "police" in dept_text or "crime" in dept_text:
+        return "police"
+
+    return "general"
+
 
 # ======================================================
 # LANGGRAPH WORKFLOW (USER FLOW ONLY)

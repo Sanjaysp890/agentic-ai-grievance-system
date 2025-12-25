@@ -2,11 +2,10 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 
-# Load environment variables from .env
 load_dotenv()
 
 # -------------------------------------------------
-# Database connection helper
+# DB CONNECTION
 # -------------------------------------------------
 def get_connection():
     return psycopg2.connect(
@@ -18,13 +17,9 @@ def get_connection():
     )
 
 # =================================================
-# 🔐 USER AUTH FUNCTIONS (ADDED - NO EXISTING CODE TOUCHED)
+# USER AUTH
 # =================================================
-
 def create_user(name, email, password, role="user", department=None):
-    """
-    Inserts a new user into users table (Signup)
-    """
     conn = get_connection()
     cur = conn.cursor()
 
@@ -38,7 +33,6 @@ def create_user(name, email, password, role="user", department=None):
     )
 
     user_id = cur.fetchone()[0]
-
     conn.commit()
     cur.close()
     conn.close()
@@ -47,10 +41,6 @@ def create_user(name, email, password, role="user", department=None):
 
 
 def validate_login(email, password):
-    """
-    Validates user login credentials
-    Returns user details if valid, else None
-    """
     conn = get_connection()
     cur = conn.cursor()
 
@@ -64,7 +54,6 @@ def validate_login(email, password):
     )
 
     row = cur.fetchone()
-
     cur.close()
     conn.close()
 
@@ -78,19 +67,10 @@ def validate_login(email, password):
 
     return None
 
-
 # =================================================
-# 🧾 COMPLAINT FUNCTIONS (UNCHANGED)
+# COMPLAINTS
 # =================================================
-
-# -------------------------------------------------
-# 1️⃣ INSERT NEW COMPLAINT (Intake Agent)
-# -------------------------------------------------
 def save_complaint(original_input, english_text, input_type, language):
-    """
-    Inserts a new complaint into the complaints table
-    and returns the generated complaint_id
-    """
     conn = get_connection()
     cur = conn.cursor()
 
@@ -105,7 +85,6 @@ def save_complaint(original_input, english_text, input_type, language):
     )
 
     complaint_id = cur.fetchone()[0]
-
     conn.commit()
     cur.close()
     conn.close()
@@ -113,22 +92,14 @@ def save_complaint(original_input, english_text, input_type, language):
     return complaint_id
 
 
-# -------------------------------------------------
-# 2️⃣ UPDATE CLASSIFICATION (After Classifier Agent)
-# -------------------------------------------------
 def update_complaint_classification(complaint_id, department, priority):
-    """
-    Updates department, priority, and status
-    for an existing complaint
-    """
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
         """
         UPDATE complaints
-        SET
-            department = %s,
+        SET department = %s,
             priority = %s,
             status = 'IN_PROGRESS'
         WHERE complaint_id = %s;
@@ -141,18 +112,55 @@ def update_complaint_classification(complaint_id, department, priority):
     conn.close()
 
 
-# -------------------------------------------------
-# 3️⃣ INSERT DEPARTMENT RESPONSE
-# -------------------------------------------------
-def save_department_response(complaint_id, department, response_text):
-    """
-    Stores the department's response linked to the complaint
-    and marks the complaint as RESOLVED
-    """
+def get_complaints_by_department(department):
     conn = get_connection()
     cur = conn.cursor()
 
-    # Insert department response
+    cur.execute(
+        """
+        SELECT complaint_id, original_input, status, priority
+        FROM complaints
+        WHERE department = %s
+        ORDER BY complaint_id DESC;
+        """,
+        (department,)
+    )
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [
+        {
+            "complaint_id": r[0],
+            "text": r[1],
+            "status": r[2],
+            "priority": r[3]
+        }
+        for r in rows
+    ]
+
+
+def get_complaint_department(complaint_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT department FROM complaints WHERE complaint_id = %s;",
+        (complaint_id,)
+    )
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return row[0] if row else None
+
+
+def save_department_response(complaint_id, department, response_text):
+    conn = get_connection()
+    cur = conn.cursor()
+
     cur.execute(
         """
         INSERT INTO department_response
@@ -162,7 +170,6 @@ def save_department_response(complaint_id, department, response_text):
         (complaint_id, department, response_text)
     )
 
-    # Mark complaint as resolved
     cur.execute(
         """
         UPDATE complaints

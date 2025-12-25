@@ -17,7 +17,9 @@ from backend.agents.main import (
 
 from backend.databases.db import (
     create_user,
-    validate_login
+    validate_login,
+    get_complaints_by_department,
+    get_complaint_department
 )
 
 # --------------------------------------------------
@@ -83,7 +85,7 @@ def login(req: LoginRequest):
 
 
 # --------------------------------------------------
-# USER FLOW  ✅ (NO TRY/EXCEPT — FIXES __end__)
+# USER FLOW
 # --------------------------------------------------
 @app.post("/submit-complaint")
 def submit_complaint(req: ComplaintRequest):
@@ -93,13 +95,9 @@ def submit_complaint(req: ComplaintRequest):
         req.user_id
     )
 
-    # ✅ LangGraph END = SUCCESS
     if result == "__end__" or result is None:
-        return {
-            "status": "submitted"
-        }
+        return {"status": "submitted"}
 
-    # ✅ Return ONLY JSON-safe fields
     return {
         "complaint_id": result.get("complaint_id"),
         "department_name": result.get("department_name"),
@@ -110,16 +108,40 @@ def submit_complaint(req: ComplaintRequest):
 
 
 # --------------------------------------------------
-# ADMIN FLOW
+# ADMIN: VIEW COMPLAINTS (DEPT RESTRICTED)
+# --------------------------------------------------
+@app.get("/admin/complaints/{department}")
+def get_admin_complaints(department: str):
+    try:
+        return get_complaints_by_department(department)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --------------------------------------------------
+# ADMIN: RESPOND (DEPT RESTRICTED)
 # --------------------------------------------------
 @app.post("/admin/respond")
 def admin_respond(req: AdminResponseRequest):
     try:
-        result = submit_department_response_api(
+        complaint_dept = get_complaint_department(req.complaint_id)
+
+        if not complaint_dept:
+            raise HTTPException(status_code=404, detail="Complaint not found")
+
+        if complaint_dept != req.department:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin cannot respond to complaints outside their department"
+            )
+
+        return submit_department_response_api(
             req.complaint_id,
             req.department,
             req.response
         )
-        return result
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
