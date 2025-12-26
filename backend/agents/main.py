@@ -7,10 +7,12 @@ from langgraph.graph import StateGraph, END
 from ..databases.db import (
     save_complaint,
     update_complaint_classification,
-    save_department_response
+    save_department_response,
+    save_previous_responses,
+    get_complaint_text
 )
-# -------------------------------------------
 
+# ---------------- AGENT IMPORTS ----------------
 try:
     from .intake_agent import intake_agent
     from .classifier_agent import classifier_node
@@ -36,21 +38,12 @@ class MasterState(TypedDict):
 
     complaint_id: Optional[int]
 
-    detected_language: Optional[str]
-    original_transcript: Optional[str]
     english_output: Optional[str]
-
     previous_responses: Optional[List[str]]
     classification: Optional[Dict[str, Any]]
-
     department_name: Optional[str]
     officer_response: Optional[str]
-    response_timestamp: Optional[float]
 
-    escalation_status: Optional[str]
-    escalation_reason: Optional[str]
-
-    learning_ingestion_status: Optional[str]
     task_mode: Optional[str]
     error: Optional[str]
 
@@ -63,7 +56,6 @@ def intake_wrapper(state: MasterState):
     if result.get("error"):
         return {"error": result["error"]}
 
-    # ✅ FIX: extract user_id from metadata
     user_id = state.get("metadata", {}).get("user_id")
 
     complaint_id = save_complaint(
@@ -71,15 +63,13 @@ def intake_wrapper(state: MasterState):
         result.get("english_output"),
         state["input_type"],
         result.get("detected_language", "en"),
-        user_id                     # ✅ PASS USER ID
+        user_id
     )
 
     return {
         "complaint_id": complaint_id,
         "english_output": result.get("english_output"),
-        "original_transcript": result.get("original_transcript"),
-        "detected_language": result.get("detected_language"),
-        "metadata": {**state.get("metadata", {}), "intake_time": time.time()}
+        "metadata": state.get("metadata", {})
     }
 
 
@@ -88,7 +78,14 @@ def learning_retrieval_wrapper(state: MasterState):
         return {"error": state["error"]}
 
     state["task_mode"] = "retrieve"
-    return learning_agent_node(state)
+    result = learning_agent_node(state)
+
+    # ✅ SAVE RETRIEVED SIMILAR RESPONSES INTO POSTGRES
+    previous = result.get("previous_responses", [])
+    if previous and state.get("complaint_id"):
+        save_previous_responses(state["complaint_id"], previous)
+
+    return result
 
 
 def classifier_wrapper(state: MasterState):
@@ -96,28 +93,21 @@ def classifier_wrapper(state: MasterState):
         return {"error": state["error"]}
 
     result = classifier_node(state)
-
-    if result.get("error"):
-        return {"error": result["error"]}
-
     classification = result.get("classification")
 
     if not classification:
         return {"error": "Classifier returned no classification"}
 
-    departments = classification.get("departments")
+    departments = classification.get("departments", [])
     priority = classification.get("urgency_score")
 
     if not departments or priority is None:
-        return {"error": "Classifier output missing departments or urgency_score"}
+        return {"error": "Classifier output incomplete"}
 
-    # ✅ DETERMINE FINAL ROUTED DEPARTMENT
     primary = departments[0].lower()
 
     if "water" in primary:
         final_department = "WaterBoard"
-    elif "health" in primary:
-        final_department = "Health"
     elif "electric" in primary:
         final_department = "Electricity"
     elif "police" in primary or "crime" in primary:
@@ -125,7 +115,6 @@ def classifier_wrapper(state: MasterState):
     else:
         final_department = "General"
 
-    # ✅ SAVE ROUTED DEPARTMENT + PRIORITY
     update_complaint_classification(
         state["complaint_id"],
         final_department,
@@ -137,33 +126,23 @@ def classifier_wrapper(state: MasterState):
         "department_name": final_department
     }
 
-
-def escalation_wrapper(state: MasterState):
-    if state.get("error"):
-        return {"error": state["error"]}
-
-    return escalation_agent_node(state)
-
 # ======================================================
 # ROUTING LOGIC
 # ======================================================
 def route_complaint(state: MasterState) -> Literal["water", "police", "electric", "general"]:
-    if state.get("error"):
-        return "general"
-
     classification = state.get("classification", {})
     depts = classification.get("departments", [])
 
     if not depts:
         return "general"
 
-    dept_text = " ".join(d.lower() for d in depts)
+    text = " ".join(d.lower() for d in depts)
 
-    if "water" in dept_text:
+    if "water" in text:
         return "water"
-    if "electric" in dept_text or "power" in dept_text:
+    if "electric" in text or "power" in text:
         return "electric"
-    if "police" in dept_text or "crime" in dept_text:
+    if "police" in text or "crime" in text:
         return "police"
 
     return "general"
@@ -207,34 +186,35 @@ app = workflow.compile()
 # API-CALLABLE FUNCTIONS
 # ======================================================
 def submit_complaint_api(input_type: str, input_content: str, user_id: int):
-    state = {
+    return app.invoke({
         "input_type": input_type,
         "input_content": input_content,
         "metadata": {
             "source": "frontend",
-            "user_id": user_id     # ✅ USER ID ENTERS SYSTEM HERE
+            "user_id": user_id
         }
-    }
-    return app.invoke(state)
+    })
 
 
 def submit_department_response_api(complaint_id: int, department: str, response: str):
+    # 1️⃣ Save admin response to PostgreSQL
     save_department_response(complaint_id, department, response)
 
-    state = {
+    # 2️⃣ Fetch complaint text
+    complaint_text = get_complaint_text(complaint_id)
+
+    # 3️⃣ Ingest complaint + response into ChromaDB
+    if complaint_text:
+        learning_agent_node({
+            "task_mode": "ingest",
+            "english_output": complaint_text,
+            "officer_response": response
+        })
+
+    # 4️⃣ Escalation logic
+    escalation_agent_node({
         "complaint_id": complaint_id,
-        "officer_response": response,
-        "metadata": {
-            "intake_time": time.time()
-        }
-    }
-
-    learning_agent_node({
-        **state,
-        "task_mode": "ingest",
-        "english_output": None
+        "officer_response": response
     })
-
-    escalation_agent_node(state)
 
     return {"status": "success"}

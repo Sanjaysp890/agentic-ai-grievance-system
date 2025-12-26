@@ -1,4 +1,5 @@
 import os
+import json
 import psycopg2
 from dotenv import load_dotenv
 
@@ -137,6 +138,42 @@ def save_department_response(complaint_id, department, response_text):
     conn.close()
 
 # =================================================
+# ✅ LEARNING AGENT STORAGE
+# =================================================
+def save_previous_responses(complaint_id, responses):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        UPDATE complaints
+        SET previous_responses = %s
+        WHERE complaint_id = %s;
+        """,
+        (json.dumps(responses), complaint_id)
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_complaint_text(complaint_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT english_text FROM complaints WHERE complaint_id = %s;",
+        (complaint_id,)
+    )
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return row[0] if row else None
+
+# =================================================
 # ADMIN HELPERS
 # =================================================
 def get_complaint_department(complaint_id):
@@ -161,11 +198,7 @@ def get_complaints_by_department(department):
 
     cur.execute(
         """
-        SELECT
-            complaint_id,
-            english_text,
-            original_input,
-            status
+        SELECT complaint_id, english_text, original_input, status
         FROM complaints
         WHERE department = %s
         ORDER BY complaint_id DESC;
@@ -197,15 +230,20 @@ def get_complaints_by_user(user_id):
     cur.execute(
         """
         SELECT
-            complaint_id,
-            english_text,
-            department,
-            priority,
-            status,
-            created_at
-        FROM complaints
-        WHERE user_id = %s
-        ORDER BY complaint_id DESC;
+            c.complaint_id,
+            c.english_text,
+            c.original_input,
+            c.department,
+            c.priority,
+            c.status,
+            c.created_at,
+            dr.response_text,
+            c.previous_responses
+        FROM complaints c
+        LEFT JOIN department_response dr
+            ON c.complaint_id = dr.complaint_id
+        WHERE c.user_id = %s
+        ORDER BY c.complaint_id DESC;
         """,
         (user_id,)
     )
@@ -218,10 +256,13 @@ def get_complaints_by_user(user_id):
         {
             "complaint_id": r[0],
             "english_text": r[1],
-            "department": r[2],
-            "priority": r[3],
-            "status": r[4],
-            "created_at": r[5]
+            "original_input": r[2],
+            "department": r[3],
+            "priority": r[4],
+            "status": r[5],
+            "created_at": r[6],
+            "admin_response": r[7],
+            "previous_responses": r[8] or []
         }
         for r in rows
     ]

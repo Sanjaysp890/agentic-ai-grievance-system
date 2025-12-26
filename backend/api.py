@@ -27,19 +27,14 @@ app.add_middleware(
 )
 
 # --------------------------------------------------
-# IMPORT BACKEND LOGIC
+# DATABASE IMPORTS (SAFE AT STARTUP)
 # --------------------------------------------------
-from backend.agents.main import (
-    submit_complaint_api,
-    submit_department_response_api
-)
-
 from backend.databases.db import (
     create_user,
     validate_login,
     get_complaints_by_department,
     get_complaint_department,
-    get_complaints_by_user      # ✅ NEW
+    get_complaints_by_user
 )
 
 # --------------------------------------------------
@@ -109,29 +104,41 @@ def login(req: LoginRequest):
 # --------------------------------------------------
 @app.post("/submit-complaint")
 def submit_complaint(req: ComplaintRequest):
+    # 🔑 LAZY IMPORT (CRITICAL FOR WINDOWS)
+    from backend.agents.main import submit_complaint_api
+
     result = submit_complaint_api(
         req.input_type,
         req.input_content,
         req.user_id
     )
 
-    if result == "__end__" or result is None:
+    if result is None or result == "__end__":
         return {"status": "PENDING"}
 
     return {
         "complaint_id": result.get("complaint_id"),
         "department_name": result.get("department_name"),
         "classification": result.get("classification"),
+        # learning agent output (already computed internally)
         "previous_responses": result.get("previous_responses", []),
         "status": "PENDING"
     }
 
 
 # --------------------------------------------------
-# ✅ USER: COMPLAINT HISTORY (NEW – REQUIRED)
+# ✅ USER: COMPLAINT HISTORY
 # --------------------------------------------------
 @app.get("/user/complaints/{user_id}")
 def user_complaints(user_id: int):
+    """
+    Returns stored complaint history:
+    - complaint text
+    - status
+    - priority
+    - admin_response (official)
+    - previous_responses (reference-only, if stored)
+    """
     try:
         return get_complaints_by_user(user_id)
     except Exception as e:
@@ -154,6 +161,9 @@ def get_admin_complaints(department: str):
 # --------------------------------------------------
 @app.post("/admin/respond")
 def admin_respond(req: AdminResponseRequest):
+    # 🔑 LAZY IMPORT (CRITICAL FOR WINDOWS)
+    from backend.agents.main import submit_department_response_api
+
     try:
         complaint_dept = get_complaint_department(req.complaint_id)
 
