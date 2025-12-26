@@ -45,7 +45,7 @@ classification_prompt = ChatPromptTemplate.from_template(
     
     RULES:
     1. Urgency: 1-10 (10=Life Threatening).
-    2. Departments: Choose from [Police, Health, WaterBoard, Electricity, Municipal, RoadTransport, Fire, CyberCrime].
+    2. Departments: Choose from [Police, WaterBoard, Electricity].
     3. JSON ONLY. No markdown, no "Here is the JSON", no repeated text.
     
     {format_instructions}

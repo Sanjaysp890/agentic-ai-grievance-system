@@ -39,6 +39,3 @@ def police_dept_node(state: Dict[str, Any]):
 
 def electricity_dept_node(state: Dict[str, Any]):
     return run_department_qa("Electricity Board", state)
-
-def general_dept_node(state: Dict[str, Any]):
-    return run_department_qa("General Administration", state)

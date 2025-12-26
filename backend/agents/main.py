@@ -11,8 +11,7 @@ try:
     from .departments import (
         water_dept_node,
         police_dept_node,
-        electricity_dept_node,
-        general_dept_node
+        electricity_dept_node
     )
     from .escalation_agent import escalation_agent_node
     from .learning_agent import learning_agent_node
@@ -78,7 +77,7 @@ def classifier_wrapper(state: MasterState):
 # -------------------------------
 # Routing Logic
 # -------------------------------
-def route_complaint(state: MasterState) -> Literal["water", "police", "electric", "general"]:
+def route_complaint(state: MasterState) -> Literal["water", "police", "electric"]:
     if state.get("error"):
         return END
 
@@ -86,8 +85,8 @@ def route_complaint(state: MasterState) -> Literal["water", "police", "electric"
     departments = classification.get("departments", [])
 
     if not departments:
-        return "general"
-
+        return "police"  # default fallback
+    
     primary = departments[0].lower()
 
     if "water" in primary:
@@ -97,7 +96,7 @@ def route_complaint(state: MasterState) -> Literal["water", "police", "electric"
     elif any(x in primary for x in ["electric", "power", "energy"]):
         return "electric"
     else:
-        return "general"
+        return "police"
 
 # -------------------------------
 # LangGraph Workflow
@@ -112,7 +111,6 @@ workflow.add_node("classifier", classifier_wrapper)
 workflow.add_node("water_node", water_dept_node)
 workflow.add_node("police_node", police_dept_node)
 workflow.add_node("electric_node", electricity_dept_node)
-workflow.add_node("general_node", general_dept_node)
 
 # Post-processing agents
 workflow.add_node("escalation", escalation_agent_node)
@@ -130,13 +128,12 @@ workflow.add_conditional_edges(
     {
         "water": "water_node",
         "police": "police_node",
-        "electric": "electric_node",
-        "general": "general_node"
+        "electric": "electric_node"
     }
 )
 
 # Department → Escalation → Learning → END
-for dept in ["water_node", "police_node", "electric_node", "general_node"]:
+for dept in ["water_node", "police_node", "electric_node"]:
     workflow.add_edge(dept, "escalation")
 
 workflow.add_edge("escalation", "learning")
