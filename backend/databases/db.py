@@ -69,18 +69,18 @@ def validate_login(email, password):
 # =================================================
 # COMPLAINTS
 # =================================================
-def save_complaint(original_input, english_text, input_type, language):
+def save_complaint(original_input, english_text, input_type, language, user_id):
     conn = get_connection()
     cur = conn.cursor()
 
     cur.execute(
         """
         INSERT INTO complaints
-        (original_input, english_text, input_type, language, status, created_at)
-        VALUES (%s, %s, %s, %s, 'OPEN', NOW())
+        (original_input, english_text, input_type, language, status, created_at, user_id)
+        VALUES (%s, %s, %s, %s, 'PENDING', NOW(), %s)
         RETURNING complaint_id;
         """,
-        (original_input, english_text, input_type, language)
+        (original_input, english_text, input_type, language, user_id)
     )
 
     complaint_id = cur.fetchone()[0]
@@ -177,13 +177,51 @@ def get_complaints_by_department(department):
     cur.close()
     conn.close()
 
-    complaints = []
-    for row in rows:
-        complaints.append({
-            "complaint_id": row[0],
-            "english_text": row[1],
-            "original_input": row[2],
-            "status": row[3]
-        })
+    return [
+        {
+            "complaint_id": r[0],
+            "english_text": r[1],
+            "original_input": r[2],
+            "status": r[3]
+        }
+        for r in rows
+    ]
 
-    return complaints
+# =================================================
+# USER HELPERS
+# =================================================
+def get_complaints_by_user(user_id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT
+            complaint_id,
+            english_text,
+            department,
+            priority,
+            status,
+            created_at
+        FROM complaints
+        WHERE user_id = %s
+        ORDER BY complaint_id DESC;
+        """,
+        (user_id,)
+    )
+
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [
+        {
+            "complaint_id": r[0],
+            "english_text": r[1],
+            "department": r[2],
+            "priority": r[3],
+            "status": r[4],
+            "created_at": r[5]
+        }
+        for r in rows
+    ]

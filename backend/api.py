@@ -8,6 +8,10 @@ from typing import Optional
 # --------------------------------------------------
 app = FastAPI(title="Public Grievance Redressal AI System")
 
+@app.get("/favicon.ico")
+async def favicon():
+    return {}
+
 # --------------------------------------------------
 # ✅ CORS (REQUIRED FOR FRONTEND)
 # --------------------------------------------------
@@ -34,7 +38,8 @@ from backend.databases.db import (
     create_user,
     validate_login,
     get_complaints_by_department,
-    get_complaint_department
+    get_complaint_department,
+    get_complaints_by_user      # ✅ NEW
 )
 
 # --------------------------------------------------
@@ -100,7 +105,7 @@ def login(req: LoginRequest):
 
 
 # --------------------------------------------------
-# USER FLOW
+# USER: SUBMIT COMPLAINT
 # --------------------------------------------------
 @app.post("/submit-complaint")
 def submit_complaint(req: ComplaintRequest):
@@ -111,15 +116,26 @@ def submit_complaint(req: ComplaintRequest):
     )
 
     if result == "__end__" or result is None:
-        return {"status": "submitted"}
+        return {"status": "PENDING"}
 
     return {
         "complaint_id": result.get("complaint_id"),
         "department_name": result.get("department_name"),
         "classification": result.get("classification"),
         "previous_responses": result.get("previous_responses", []),
-        "status": "submitted"
+        "status": "PENDING"
     }
+
+
+# --------------------------------------------------
+# ✅ USER: COMPLAINT HISTORY (NEW – REQUIRED)
+# --------------------------------------------------
+@app.get("/user/complaints/{user_id}")
+def user_complaints(user_id: int):
+    try:
+        return get_complaints_by_user(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --------------------------------------------------
@@ -150,11 +166,17 @@ def admin_respond(req: AdminResponseRequest):
                 detail="Admin cannot respond to complaints outside their department"
             )
 
-        return submit_department_response_api(
+        result = submit_department_response_api(
             req.complaint_id,
             req.department,
             req.response
         )
+
+        return {
+            "status": "RESOLVED",
+            "message": "Response submitted successfully",
+            "data": result
+        }
 
     except HTTPException:
         raise

@@ -63,11 +63,15 @@ def intake_wrapper(state: MasterState):
     if result.get("error"):
         return {"error": result["error"]}
 
+    # ✅ FIX: extract user_id from metadata
+    user_id = state.get("metadata", {}).get("user_id")
+
     complaint_id = save_complaint(
         state["input_content"],
         result.get("english_output"),
         state["input_type"],
-        result.get("detected_language", "en")
+        result.get("detected_language", "en"),
+        user_id                     # ✅ PASS USER ID
     )
 
     return {
@@ -107,7 +111,7 @@ def classifier_wrapper(state: MasterState):
     if not departments or priority is None:
         return {"error": "Classifier output missing departments or urgency_score"}
 
-    # ✅ DETERMINE FINAL ROUTED DEPARTMENT (SINGLE SOURCE OF TRUTH)
+    # ✅ DETERMINE FINAL ROUTED DEPARTMENT
     primary = departments[0].lower()
 
     if "water" in primary:
@@ -121,7 +125,7 @@ def classifier_wrapper(state: MasterState):
     else:
         final_department = "General"
 
-    # ✅ SAVE ROUTED DEPARTMENT TO DB
+    # ✅ SAVE ROUTED DEPARTMENT + PRIORITY
     update_complaint_classification(
         state["complaint_id"],
         final_department,
@@ -134,8 +138,6 @@ def classifier_wrapper(state: MasterState):
     }
 
 
-
-
 def escalation_wrapper(state: MasterState):
     if state.get("error"):
         return {"error": state["error"]}
@@ -143,7 +145,7 @@ def escalation_wrapper(state: MasterState):
     return escalation_agent_node(state)
 
 # ======================================================
-# ROUTING LOGIC (FIXED — NO END HERE)
+# ROUTING LOGIC
 # ======================================================
 def route_complaint(state: MasterState) -> Literal["water", "police", "electric", "general"]:
     if state.get("error"):
@@ -155,10 +157,8 @@ def route_complaint(state: MasterState) -> Literal["water", "police", "electric"
     if not depts:
         return "general"
 
-    # ✅ normalize all departments
     dept_text = " ".join(d.lower() for d in depts)
 
-    # ✅ PRIORITY-BASED ROUTING (REALISTIC)
     if "water" in dept_text:
         return "water"
     if "electric" in dept_text or "power" in dept_text:
@@ -168,9 +168,8 @@ def route_complaint(state: MasterState) -> Literal["water", "police", "electric"
 
     return "general"
 
-
 # ======================================================
-# LANGGRAPH WORKFLOW (USER FLOW ONLY)
+# LANGGRAPH WORKFLOW
 # ======================================================
 workflow = StateGraph(MasterState)
 
@@ -199,7 +198,6 @@ workflow.add_conditional_edges(
     }
 )
 
-# ✅ USER FLOW ENDS AFTER DEPARTMENT ASSIGNMENT
 for node in ["water_node", "police_node", "electric_node", "general_node"]:
     workflow.add_edge(node, END)
 
@@ -209,31 +207,18 @@ app = workflow.compile()
 # API-CALLABLE FUNCTIONS
 # ======================================================
 def submit_complaint_api(input_type: str, input_content: str, user_id: int):
-    """
-    USER FLOW:
-    - Intake
-    - Learning retrieval
-    - Classification
-    - Department assignment
-    """
     state = {
         "input_type": input_type,
         "input_content": input_content,
         "metadata": {
             "source": "frontend",
-            "user_id": user_id
+            "user_id": user_id     # ✅ USER ID ENTERS SYSTEM HERE
         }
     }
     return app.invoke(state)
 
 
 def submit_department_response_api(complaint_id: int, department: str, response: str):
-    """
-    ADMIN FLOW:
-    - Save response
-    - Learning ingestion
-    - Escalation check
-    """
     save_department_response(complaint_id, department, response)
 
     state = {
@@ -244,14 +229,12 @@ def submit_department_response_api(complaint_id: int, department: str, response:
         }
     }
 
-    # Learning update
     learning_agent_node({
         **state,
         "task_mode": "ingest",
         "english_output": None
     })
 
-    # Escalation check
     escalation_agent_node(state)
 
     return {"status": "success"}
