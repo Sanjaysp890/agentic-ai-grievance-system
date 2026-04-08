@@ -11,6 +11,7 @@ import {
   Clock,
   TrendingUp,
   CheckCircle,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
@@ -97,6 +98,8 @@ export default function AdminDashboard() {
       ? "bg-yellow-100 text-yellow-700"
       : s === "IN_PROGRESS"
       ? "bg-blue-100 text-blue-700"
+      : s === "ESCALATED"
+      ? "bg-red-100 text-red-700"
       : "bg-green-100 text-green-700";
 
   const priorityBadge = (p) => {
@@ -128,7 +131,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* STATS */}
-      <div className="max-w-7xl mx-auto grid grid-cols-4 gap-6 px-8 mt-8">
+      <div className="max-w-7xl mx-auto grid grid-cols-5 gap-6 px-8 mt-8">
         <Stat icon={<FileText />} label="Total" value={complaints.length}
           bg="bg-purple-100" color="text-purple-600" />
         <Stat icon={<Clock />} label="Pending"
@@ -140,6 +143,9 @@ export default function AdminDashboard() {
         <Stat icon={<CheckCircle />} label="Resolved"
           value={complaints.filter(c => c.status === "RESOLVED").length}
           bg="bg-green-100" color="text-green-600" />
+        <Stat icon={<AlertTriangle />} label="Escalated"
+          value={complaints.filter(c => c.status === "ESCALATED").length}
+          bg="bg-red-100" color="text-red-600" />
       </div>
 
       {/* SEARCH + FILTERS */}
@@ -153,7 +159,7 @@ export default function AdminDashboard() {
 
         {/* STATUS FILTER */}
         <div className="flex gap-2 flex-wrap">
-          {["ALL", "PENDING", "IN_PROGRESS", "RESOLVED"].map((s) => (
+          {["ALL", "PENDING", "IN_PROGRESS", "RESOLVED", "ESCALATED"].map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}

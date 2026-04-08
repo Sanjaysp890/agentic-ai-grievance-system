@@ -62,8 +62,9 @@ export default function UserDashboard() {
   const statusConfig = (status) => ({
     PENDING: "bg-amber-100 text-amber-700",
     IN_PROGRESS: "bg-blue-100 text-blue-700",
-    RESOLVED: "bg-green-100 text-green-700"
-  }[status]);
+    RESOLVED: "bg-green-100 text-green-700",
+    ESCALATED: "bg-red-100 text-red-700"
+  }[status] || "bg-gray-100 text-gray-700");
 
   if (!user) return null;
 
@@ -147,6 +148,16 @@ export default function UserDashboard() {
                     {c.status}
                   </span>
                 </div>
+
+                {/* ESCALATION WARNING */}
+                {c.status === "ESCALATED" && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                    <AlertCircle size={16} className="text-red-600 flex-shrink-0" />
+                    <p className="text-red-700 text-sm font-medium">
+                      This complaint has been escalated to higher authority as it remains unresolved beyond 48 hours.
+                    </p>
+                  </div>
+                )}
 
                 {/* COMPLAINT */}
                 <p className="text-gray-700 mb-4">

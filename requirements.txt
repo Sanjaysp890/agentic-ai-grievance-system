@@ -1,0 +1,12 @@
+langchain
+langchain-groq
+langchain-core
+langgraph
+pydantic
+python-dotenv
+faster-whisper
+chromadb
+sentence-transformers
+fastapi
+psycopg2 
+apscheduler

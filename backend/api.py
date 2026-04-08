@@ -2,6 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+from apscheduler.schedulers.background import BackgroundScheduler
+from backend.agents.escalation_agent import run_escalation_check
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(run_escalation_check, 'interval', hours=1)
+scheduler.start()
 
 # --------------------------------------------------
 # CREATE FASTAPI APP
