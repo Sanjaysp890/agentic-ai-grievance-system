@@ -67,8 +67,11 @@ export default function AdminDashboard() {
 
   /* ---------- PRIORITY HELPERS ---------- */
 
-  const normalizePriority = (p) =>
-    p ? p.toUpperCase() : "LOW";
+  const normalizePriority = (p, classification) => {
+    if (p) return p.toUpperCase();
+    if (classification?.urgency_score) return classification.urgency_score.toUpperCase();
+    return "LOW";
+  };
 
   const priorityRank = { HIGH: 1, MEDIUM: 2, LOW: 3 };
 
@@ -79,7 +82,7 @@ export default function AdminDashboard() {
 
       const priorityOk =
         priorityFilter === "ALL" ||
-        normalizePriority(c.priority) === priorityFilter;
+        normalizePriority(c.priority, c.classification) === priorityFilter;
 
       const textOk = (c.english_text || c.original_input || "")
         .toLowerCase()
@@ -89,8 +92,8 @@ export default function AdminDashboard() {
     })
     .sort(
       (a, b) =>
-        priorityRank[normalizePriority(a.priority)] -
-        priorityRank[normalizePriority(b.priority)]
+        priorityRank[normalizePriority(a.priority, a.classification)] -
+        priorityRank[normalizePriority(b.priority, b.classification)]
     );
 
   const statusBadge = (s) =>
@@ -102,8 +105,8 @@ export default function AdminDashboard() {
       ? "bg-red-100 text-red-700"
       : "bg-green-100 text-green-700";
 
-  const priorityBadge = (p) => {
-    const pr = normalizePriority(p);
+  const priorityBadge = (p, classification) => {
+    const pr = normalizePriority(p, classification);
     if (pr === "HIGH") return "bg-red-100 text-red-700";
     if (pr === "MEDIUM") return "bg-amber-100 text-amber-700";
     return "bg-green-100 text-green-700";
@@ -239,8 +242,8 @@ export default function AdminDashboard() {
                   </td>
 
                   <td className="p-4 text-center">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${priorityBadge(c.priority)}`}>
-                      {normalizePriority(c.priority)}
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${priorityBadge(c.priority, c.classification)}`}>
+                      {normalizePriority(c.priority, c.classification)}
                     </span>
                   </td>
 

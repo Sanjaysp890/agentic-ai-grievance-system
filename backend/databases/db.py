@@ -198,7 +198,7 @@ def get_complaints_by_department(department):
 
     cur.execute(
         """
-        SELECT complaint_id, english_text, original_input, status
+        SELECT complaint_id, english_text, original_input, status, priority
         FROM complaints
         WHERE department = %s
         ORDER BY complaint_id DESC;
@@ -215,7 +215,8 @@ def get_complaints_by_department(department):
             "complaint_id": r[0],
             "english_text": r[1],
             "original_input": r[2],
-            "status": r[3]
+            "status": r[3],
+            "priority": r[4]
         }
         for r in rows
     ]

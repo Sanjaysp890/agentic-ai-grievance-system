@@ -108,7 +108,8 @@ if __name__ == "__main__":
     test_inputs = [
         "There is a massive fire in the garbage dump! Kids are coughing.",
         "My street light is flickering.",
-        "The water supply is dirty and smells like sewage."
+        "The water supply is dirty and smells like sewage.",
+        "Jaynagar 4th block has been experiencing power outages since 8:00 am yesterday."
     ]
 
     print("\n--- CLASSIFIER AGENT TEST ---")
