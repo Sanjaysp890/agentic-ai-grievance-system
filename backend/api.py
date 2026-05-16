@@ -50,8 +50,6 @@ class SignupRequest(BaseModel):
     name: str
     email: str
     password: str
-    role: str = "user"        # user | admin
-    department: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -89,8 +87,8 @@ def signup(req: SignupRequest):
             req.name,
             req.email,
             req.password,
-            req.role,
-            req.department
+            "user",
+            None
         )
         return {"status": "success", "user_id": user_id}
     except Exception as e:

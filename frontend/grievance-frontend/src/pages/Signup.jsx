@@ -6,9 +6,7 @@ export default function Signup() {
   const [form, setForm] = useState({
     name: "",
     email: "",
-    password: "",
-    role: "user",
-    department: ""
+    password: ""
   });
 
   const [error, setError] = useState("");
@@ -57,26 +55,6 @@ export default function Signup() {
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
         />
-
-        <select
-          value={form.role}
-          onChange={(e) =>
-            setForm({ ...form, role: e.target.value })
-          }
-        >
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-        </select>
-
-        {form.role === "admin" && (
-          <input
-            placeholder="Department (e.g. WaterBoard)"
-            value={form.department}
-            onChange={(e) =>
-              setForm({ ...form, department: e.target.value })
-            }
-          />
-        )}
 
         <button onClick={handleSignup}>Sign Up</button>
 

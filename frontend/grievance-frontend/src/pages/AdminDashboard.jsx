@@ -74,6 +74,24 @@ export default function AdminDashboard() {
   };
 
   const priorityRank = { HIGH: 1, MEDIUM: 2, LOW: 3 };
+  const statusRank = { ESCALATED: 0, PENDING: 1, RESOLVED: 2 };
+
+  // Calculate relative time (e.g., "2 days ago", "3 hours ago")
+  const getRelativeTime = (createdAt) => {
+    if (!createdAt) return "Unknown";
+    const created = new Date(createdAt);
+    const now = new Date();
+    const diffMs = now - created;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    const diffWeeks = Math.floor(diffDays / 7);
+    return `${diffWeeks}w ago`;
+  };
 
   const filteredComplaints = complaints
     .filter((c) => {
@@ -90,17 +108,29 @@ export default function AdminDashboard() {
 
       return statusOk && priorityOk && textOk;
     })
-    .sort(
-      (a, b) =>
-        priorityRank[normalizePriority(a.priority, a.classification)] -
-        priorityRank[normalizePriority(b.priority, b.classification)]
-    );
+    .sort((a, b) => {
+      const statusDiff = statusRank[a.status] - statusRank[b.status];
+      if (statusDiff !== 0) return statusDiff;
+
+      // If both are ESCALATED: sort by age (oldest first)
+      if (a.status === "ESCALATED" && b.status === "ESCALATED") {
+        const ta = new Date(a.created_at).getTime() || 0;
+        const tb = new Date(b.created_at).getTime() || 0;
+        return ta - tb; // older (smaller timestamp) comes first
+      }
+
+      // Non-escalated: sort by priority (HIGH -> MEDIUM -> LOW)
+      const prA = priorityRank[normalizePriority(a.priority, a.classification)];
+      const prB = priorityRank[normalizePriority(b.priority, b.classification)];
+      if (prA !== prB) return prA - prB;
+
+      // Tie-breaker: newer complaints first
+      return (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0);
+    });
 
   const statusBadge = (s) =>
     s === "PENDING"
       ? "bg-yellow-100 text-yellow-700"
-      : s === "IN_PROGRESS"
-      ? "bg-blue-100 text-blue-700"
       : s === "ESCALATED"
       ? "bg-red-100 text-red-700"
       : "bg-green-100 text-green-700";
@@ -140,9 +170,6 @@ export default function AdminDashboard() {
         <Stat icon={<Clock />} label="Pending"
           value={complaints.filter(c => c.status === "PENDING").length}
           bg="bg-amber-100" color="text-amber-600" />
-        <Stat icon={<TrendingUp />} label="In Progress"
-          value={complaints.filter(c => c.status === "IN_PROGRESS").length}
-          bg="bg-blue-100" color="text-blue-600" />
         <Stat icon={<CheckCircle />} label="Resolved"
           value={complaints.filter(c => c.status === "RESOLVED").length}
           bg="bg-green-100" color="text-green-600" />
@@ -162,7 +189,7 @@ export default function AdminDashboard() {
 
         {/* STATUS FILTER */}
         <div className="flex gap-2 flex-wrap">
-          {["ALL", "PENDING", "IN_PROGRESS", "RESOLVED", "ESCALATED"].map((s) => (
+          {['ALL', 'PENDING', 'RESOLVED', 'ESCALATED'].map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
@@ -228,6 +255,7 @@ export default function AdminDashboard() {
                 <th className="p-4 text-left">Complaint</th>
                 <th className="p-4 text-center">Priority</th>
                 <th className="p-4 text-center">Status</th>
+                <th className="p-4 text-center">Age</th>
                 <th className="p-4 text-center">Action</th>
               </tr>
             </thead>
@@ -251,6 +279,10 @@ export default function AdminDashboard() {
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadge(c.status)}`}>
                       {c.status}
                     </span>
+                  </td>
+
+                  <td className="p-4 text-center text-sm text-gray-600">
+                    {getRelativeTime(c.created_at)}
                   </td>
 
                   <td className="p-4 text-center">

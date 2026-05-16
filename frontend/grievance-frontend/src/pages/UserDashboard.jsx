@@ -8,7 +8,6 @@ import {
   LogOut,
   FileText,
   Send,
-  Mic,
   Clock,
   CheckCircle2,
   AlertCircle,
@@ -61,7 +60,6 @@ export default function UserDashboard() {
 
   const statusConfig = (status) => ({
     PENDING: "bg-amber-100 text-amber-700",
-    IN_PROGRESS: "bg-blue-100 text-blue-700",
     RESOLVED: "bg-green-100 text-green-700",
     ESCALATED: "bg-red-100 text-red-700"
   }[status] || "bg-gray-100 text-gray-700");
@@ -104,10 +102,7 @@ export default function UserDashboard() {
             placeholder="Describe your grievance..."
           />
 
-          <div className="flex justify-between mt-4">
-            <button className="flex gap-2 text-blue-600">
-              <Mic /> Add Audio
-            </button>
+          <div className="flex justify-end mt-4">
             <button
               onClick={handleSubmit}
               disabled={loading}

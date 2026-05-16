@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 import chromadb
+from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
@@ -17,7 +18,7 @@ os.makedirs(METADATA_PATH, exist_ok=True)
 
 print(f"[System] Loading Knowledge Base from: {CHROMA_PATH}")
 
-chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+chroma_client = chromadb.Client(settings=Settings(persist_directory=CHROMA_PATH))
 
 embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="all-MiniLM-L6-v2"

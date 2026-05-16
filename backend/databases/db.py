@@ -70,19 +70,30 @@ def validate_login(email, password):
 # =================================================
 # COMPLAINTS
 # =================================================
-def save_complaint(original_input, english_text, input_type, language, user_id):
+def save_complaint(original_input, english_text, input_type, language, user_id, created_at=None):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
-        """
-        INSERT INTO complaints
-        (original_input, english_text, input_type, language, status, created_at, user_id)
-        VALUES (%s, %s, %s, %s, 'PENDING', NOW(), %s)
-        RETURNING complaint_id;
-        """,
-        (original_input, english_text, input_type, language, user_id)
-    )
+    if created_at is None:
+        cur.execute(
+            """
+            INSERT INTO complaints
+            (original_input, english_text, input_type, language, status, created_at, user_id)
+            VALUES (%s, %s, %s, %s, 'PENDING', NOW(), %s)
+            RETURNING complaint_id;
+            """,
+            (original_input, english_text, input_type, language, user_id)
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO complaints
+            (original_input, english_text, input_type, language, status, created_at, user_id)
+            VALUES (%s, %s, %s, %s, 'PENDING', %s, %s)
+            RETURNING complaint_id;
+            """,
+            (original_input, english_text, input_type, language, created_at, user_id)
+        )
 
     complaint_id = cur.fetchone()[0]
     conn.commit()
@@ -100,7 +111,7 @@ def update_complaint_classification(complaint_id, department, priority):
         UPDATE complaints
         SET department = %s,
             priority = %s,
-            status = 'IN_PROGRESS'
+            status = 'PENDING'
         WHERE complaint_id = %s;
         """,
         (department, priority, complaint_id)
@@ -198,7 +209,7 @@ def get_complaints_by_department(department):
 
     cur.execute(
         """
-        SELECT complaint_id, english_text, original_input, status, priority
+        SELECT complaint_id, english_text, original_input, status, priority, created_at
         FROM complaints
         WHERE department = %s
         ORDER BY complaint_id DESC;
@@ -216,7 +227,8 @@ def get_complaints_by_department(department):
             "english_text": r[1],
             "original_input": r[2],
             "status": r[3],
-            "priority": r[4]
+            "priority": r[4],
+            "created_at": r[5]
         }
         for r in rows
     ]
